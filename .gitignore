@@ -1,0 +1,10 @@
+local.properties
+gen
+.DS_Store
+.settings
+obj
+build
+*~
+.idea
+.vscode
+._.DS_Store

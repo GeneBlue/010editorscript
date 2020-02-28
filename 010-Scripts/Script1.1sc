@@ -1,0 +1,20 @@
+//--------------------------------------
+//--- 010 Editor v6.0.2 Script File
+//
+// File:
+// Author:
+// Revision:
+// Purpose:
+//--------------------------------------
+int count;
+int i;
+ 
+Printf("%d\n",FileSize());
+Printf("%s",ReadString(0));
+count=FileSize();
+
+for (i=0;i<count;i++)
+{
+    Printf("%c",ReadByte(i)^0x30);
+    WriteByte(i,ReadByte(i)^0x30);
+}
