@@ -3,11 +3,31 @@
 //
 // File:     MachOTemplate.bt
 // Author:   Tim "diff" Strazzere
-//             <diff@lookout.com>
 //             <strazz@gmail.com>
-// Revision: 1.5.3
+// Revision: 1.6.2
 // Purpose:  Quick template for parsing Macho-o binaries.
 //--------------------------------------
+//
+// Version 1.6.2 (2018-09-12):
+// - Add CSSlotType type to the blobIndex type
+//
+// Version 1.6.1 (2018-08-29):
+// - Add "scatterOffset" to the CSMAGIC_CODEDIRECTORY structure when needed
+//
+// Version 1.6 (2018-08-17):
+// - Fix issue with 0 sized string/symbol tables
+//
+// Version 1.5.6 (2016-10-25):
+//  - Fix Section64 offset type
+//
+// Version 1.5.4.1 (2016-08-10):
+//  - Fix a parsing bug for single-architecture mach-o files.
+//  - Add ARM64 CpuType
+//
+// Version 1.5.4 (2016-04-26)
+//  - Add LoadCommands of :
+//     - LC_VERSION_MIN_TVOS
+//     - LC_VERSION_MIN_WATCHOS
 //
 // Version 1.5.3 (2015-09-02)
 //  - WIP, adding lots of stuff :D
@@ -69,7 +89,8 @@
 //
 //
 
-// Mach-o's should be Little Endian only -- except for the fat_header/fat_archLittleEndian();
+// Mach-o's should be Little Endian only -- except for the fat_header/fat_arch
+LittleEndian();
 
 typedef enum <uint> {
     MACHO_32        = 0xFEEDFACE, // 32-bit mach object file
@@ -94,6 +115,7 @@ typedef enum <uint32> {
     MC98000           = 0xA,
     HPPA              = 0xB,
     ARM               = 0xC,
+    ARM64             = (0xC | 0x01000000),
     MC88000           = 0xD,
     SPARC             = 0xE,
     I860              = 0xF,
@@ -160,7 +182,8 @@ typedef enum <uint32> {
 } CpuSubTypeARM <format=hex>;
 
 typedef enum <uint32> {
-    ARM64_ALL          = 0x0
+    ARM64_ALL          = 0x0,
+    ARM64_V8           = 0x1
 } CpuSubTypeARM64 <format=hex>;
 
 typedef enum <uint32> {
@@ -294,8 +317,48 @@ typedef struct {
 } ARMThreadState <optimize=true, size=68>;
 
 typedef enum {
-    ARM_THREAD_STATE    = 0x1
+    ARM_THREAD_STATE    = 0x1,
+    ARM_THREAD_STATE64  = 0x6
 } ARMThreadFlavor <format=hex>;
+
+typedef struct {
+    uint64 r0 <format=hex>;
+    uint64 r1 <format=hex>;
+    uint64 r2 <format=hex>;
+    uint64 r3 <format=hex>;
+    uint64 r4 <format=hex>;
+    uint64 r5 <format=hex>;
+    uint64 r6 <format=hex>;
+    uint64 r7 <format=hex>;
+    uint64 r8 <format=hex>;
+    uint64 r9 <format=hex>;
+    uint64 r10 <format=hex>;
+    uint64 r11 <format=hex>;
+    uint64 r12 <format=hex>;
+    uint64 r13 <format=hex>;
+    uint64 r14 <format=hex>;
+    uint64 r15 <format=hex>;
+    uint64 r16 <format=hex>;
+    uint64 r17 <format=hex>;
+    uint64 r18 <format=hex>;
+    uint64 r19 <format=hex>;
+    uint64 r20 <format=hex>;
+    uint64 r21 <format=hex>;
+    uint64 r22 <format=hex>;
+    uint64 r23 <format=hex>;
+    uint64 r24 <format=hex>;
+    uint64 r25 <format=hex>;
+    uint64 r26 <format=hex>;
+    uint64 r27 <format=hex>;
+    uint64 r28 <format=hex>;
+    uint64 r29 <format=hex>;
+    uint64 fp <format=hex>;
+    uint64 lr <format=hex>;
+    uint64 pc <format=hex>;
+    uint32 cpsr <format=hex>;
+    uint32 pad <hidden=true>;
+} ARMThreadState64;
+
 
 typedef enum {
     NOT_ENCRYPTED       = 0x0,
@@ -402,15 +465,19 @@ typedef struct {
 typedef struct (Magic magic,
                 uint32 symbol_offset, uint32 number_of_symbols,
                 uint32 string_offset, uint32 string_size ) {
-    FSeek(string_offset);
-    StringTable stringTable(string_offset, string_size);
+    if(string_size > 0) {
+        FSeek(string_offset);
+        StringTable stringTable(string_offset, string_size);
+    }
 
-    // Needs to know if this is 64bit or not
-    FSeek(symbol_offset);
-    if(magic == MACHO_64) {
-        SymbolEntry64 symbolEntry[number_of_symbols];
-    } else {
-        SymbolEntry symbolEntry[number_of_symbols];
+    if(number_of_symbols > 0) {
+        // Needs to know if this is 64bit or not
+        FSeek(symbol_offset);
+        if(magic == MACHO_64) {
+            SymbolEntry64 symbolEntry[number_of_symbols];
+        } else {
+            SymbolEntry symbolEntry[number_of_symbols];
+        }
     }
 
 } SymbolTable <optimize=false>;
@@ -498,6 +565,9 @@ typedef struct {
         case ARM :
             CpuSubTypeARM cpu_sub_type <comment="Machine specifier", format=hex>;
             break;
+        case ARM64 :
+            CpuSubTypeARM64 cpu_sub_type <comment="Machine specifier", format=hex>;
+            break;
         default :
         uint32 cpu_sub_type <comment="Machine specifier", format=hex>;
     }
@@ -525,6 +595,9 @@ typedef struct {
                 break;
             case ARM :
                 CpuSubTypeARM cpu_sub_type <comment="Machine specifier", format=hex>;
+                break;
+            case ARM64 :
+                CpuSubTypeARM64 cpu_sub_type <comment="Machine specifier", format=hex>;
                 break;
             default :
             uint32 cpu_sub_type <comment="Machine specifier", format=hex>;
@@ -609,6 +682,8 @@ typedef enum <uint> {
     ENCRYPTION_INFO_64       = 0x2C,
     LINKER_OPTION            = 0x2D,
     LINKER_OPTIMIZATION_HINT = 0x2E,
+    VERSION_MIN_TVOS         = 0x2F,
+    VERSION_MIN_WATCHOS      = 0x30,
 } LoadCommandType <read=LoadCommandTypeRead>;
 
 string LoadCommandTypeRead(LoadCommandType &loadCommandType) {
@@ -707,6 +782,10 @@ string LoadCommandTypeRead(LoadCommandType &loadCommandType) {
             return "LINKER_OPTION";
         case LINKER_OPTIMIZATION_HINT :
             return "LINKER_OPTIMIZATION_HINT";
+        case VERSION_MIN_TVOS :
+            return "VERSION_MIN_TVOS";
+        case VERSION_MIN_WATCHOS :
+            return "VERSION_MIN_WATCHOS";
         default :
             return "Error";
     }
@@ -731,13 +810,14 @@ typedef struct {
     char segment_name[16];
     uint64 address <format=hex>;
     uint64 size <format=hex>;
-    uint64 offset;
+    uint32 offset;
     uint32 section_alignment;
     uint32 relocation_entry_offset;
     uint32 number_of_relocation_entries;
     uint32 flags <format=hex>;
     uint32 reserved1;
     uint32 reserved2;
+    uint32 reserved3;
 } Section64 <optimize=false, size=80>;
 
 typedef uint32 vm_proc;
@@ -843,9 +923,19 @@ typedef enum <uint> {
     ENTITLEMENT         = 0xfade7171,
 } BlobMagic <format=hex, comment="blob magic">;
 
+typedef enum <uint32> {
+	CSSLOT_CODEDIRECTORY = 0x0, // slot index for CodeDirectory
+	CSSLOT_INFOSLOT      = 0x1,
+	CSSLOT_REQUIREMENTS  = 0x2,
+	CSSLOT_RESOURCEDIR   = 0x3,
+	CSSLOT_APPLICATION   = 0x4,
+	CSSLOT_ENTITLEMENTS  = 0x5,
+	CSSLOT_SIGNATURESLOT = 0x10000, // CMS Signature
+} CSSlotType <format=hex, comment="Type of Blob this index points to">;
+
 typedef struct (uint begin){
     local uint begin = begin;
-    uint32 type <comment="Type of entry">;
+    CSSlotType type;
     uint32 offset <format=hex, comment="Offset of entry">;
 } BlobIndex <optimize=false, read=BlobIndexReader, comment="Blob index">;
 
@@ -920,11 +1010,11 @@ typedef struct {
     local uint64 begin = FTell();
     BlobMagic magic;
     uint32 length;
-    uint32 version<format=hex, comment="Compatibility version">;
-    uint32 flag<format=hex, comment="Setup and mode flags">;
-    uint32 hashOffset<format=hex, comment="Offset of hash slot element at index zero">;
-    uint32 identOffset<format=hex, comment="Offset of identifier string">;
-    uint32 nSpecialSlots<comment="Number of special hash slots">;
+    uint32 version <format=hex, comment="Compatibility version">;
+    uint32 flag <format=hex, comment="Setup and mode flags">;
+    uint32 hashOffset <format=hex, comment="Offset of hash slot element at index zero">;
+    uint32 identOffset <format=hex, comment="Offset of identifier string">;
+    uint32 nSpecialSlots <comment="Number of special hash slots">;
     uint32 nCodeSlots<comment="Number of ordinary (code) hash slots">;
     uint32 codeLimit <comment="Limit to main image signature range">;
     ubyte hashSize <comment="Size of each hash in bytes">;
@@ -933,7 +1023,19 @@ typedef struct {
     ubyte pageSize <read=PageSizeReader>;
     uint32 unused <comment="Unused">;
 
-    FSkip(identOffset - 0x2c);
+    if (version >= 0x20100) {
+        // Version 0x20100
+        uint32 scatterOffset;
+// https://github.com/nneonneo/osx-10.9-opensource/blob/master/xnu-2422.1.72/bsd/sys/codesign.h
+//typedef struct __SC_Scatter {
+//	uint32_t count;			// number of pages; zero for sentinel (only)
+//	uint32_t base;			// first page number
+//	uint64_t targetOffset;		// offset in target
+//	uint64_t spare;			// reserved
+//} SC_Scatter;
+    }
+
+    FSeek(begin + identOffset);
     string identifier;
 
     FSeek(begin + hashOffset - nSpecialSlots * hashSize);
@@ -950,14 +1052,70 @@ string CodeDirectoryReader(CodeDirectory &codeDirectory) {
     return s;
 }
 
+typedef enum <uint32> {
+    opFalse              = 0,
+    opTrue               = 1,
+    opIdent              = 2,
+    opAppleAnchor        = 3,
+    opAnchorHash         = 4,
+    opInfoKeyValue       = 5,
+    opAnd                = 6,
+    opOr                 = 7,
+    opCDHash             = 8,
+    opNot                = 9,
+    opInfoKeyField       = 10,
+    opCertField          = 11,
+    opTrustedCert        = 12,
+    opTrustedCerts       = 13,
+    opCertGeneric        = 14,
+    opAppleGenericAnchor = 15,
+    opEntitlementField   = 16,
+} ExprOpCode;
+
+typedef struct {
+    uint32 length;
+    ubyte data[length];
+    local int padLength = length % 4;
+    ubyte padding[length & 3];
+} ExprData;
+
+typedef struct (int length) {
+    while(length > 0) {
+        ExprOpCode opcode;
+        switch(opcode) {
+        case opAnd:
+            ExprOpCode andOpExpr1(4);
+            ExprOpCode andOpExpr2(4);
+            length -= 8;
+        case opIdent:
+            local uint64 begin = FTell();
+            ExprData data;
+            local uint64 end = FTell();
+            length -= (end - begin);
+        }
+        length -= 4;
+    }
+} Expr;
+
+typedef enum <uint32> {
+	kSecHostRequirementType          =	1,	/* what hosts may run us */
+	kSecGuestRequirementType         =	2,	/* what guests we may run */
+	kSecDesignatedRequirementType    =	3,	/* designated requirement */
+	kSecLibraryRequirementType       =	4,	/* what libraries we may link against */
+	kSecPluginRequirementType        =	5,	/* what plug-ins we may load */
+//	kSecInvalidRequirementType,				/* invalid type of Requirement (must be last) */
+//	kSecRequirementTypeCount = kSecInvalidRequirementType /* number of valid requirement types */
+} RequirementType;
+
 typedef struct (int type){
     local int type = type;
     local int begin = FTell();
     BlobMagic magic;
     uint32 length;
-    uint32 kind <read=RequirementKindReader>;
+    RequirementType kind;// <read=RequirementKindReader>;
     local int now = FTell();
     if (kind == 1)
+        //Expr expr(length-(now-begin));
         char prefix_expr[length-(now-begin)] <comment="run \"codesign --display -r- <file>\"">;
     else
         FSkip(length-(now-begin));
@@ -1120,6 +1278,7 @@ typedef struct {
     case LOAD_DYLIB :
     case LOAD_WEAK_DYLIB :
     case REEXPORT_DYLIB :
+    case LOAD_UPWARD_DYLIB :
         LoadCommandString name;
         // TODO : Pretty print this
         uint32 timestamp;
@@ -1178,6 +1337,8 @@ typedef struct {
         break;
     case VERSION_MIN_MAC_OSX :
     case VERSION_MIN_IPHONE_OS :
+    case VERSION_MIN_TVOS :
+    case VERSION_MIN_WATCHOS :
         Version minimum_os_version;
         Version minimumsdk_version;
         break;
@@ -1246,9 +1407,17 @@ typedef struct {
                 }
                 break;
             case ARM :
+            case ARM64 :
                 ARMThreadFlavor flavor;
                 uint32 count;
-                ARMThreadState threadState;
+                switch(flavor){
+                    case ARM_THREAD_STATE:
+                        ARMThreadState threadState;
+                        break;
+                    case ARM_THREAD_STATE64:
+                        ARMThreadState64 threadState;
+                        break;
+                }
                 break;
         }
         break;
@@ -1475,7 +1644,7 @@ if(header.magic == MACHO_32 || header.magic == MACHO_64) {
                 break;
             case SYM_TAB :
                     previous_position = FTell();
-                    SymbolTable symbolTable(machHeader[arch_num].magic,
+                    SymbolTable symbolTable(header.magic,
                                             loadCommandList.loadCommand[i].symbol_table_offset,
                                             loadCommandList.loadCommand[i].number_of_symbol_table_entries,
                                             loadCommandList.loadCommand[i].string_table_offset,
